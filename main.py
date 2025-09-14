@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import os
-import socket
-from datetime import datetime
+from datetime import datetime,timezone
 
 from typing import Dict, List
 from uuid import UUID, uuid4
 
 from fastapi import FastAPI, HTTPException
-from fastapi import Query, Path
+from fastapi import Query
 from typing import Optional
 
 from models.student import StudentCreate, StudentRead, StudentUpdate
@@ -34,7 +33,7 @@ app = FastAPI(
 @app.post("/courses", response_model=CourseRead, status_code=201)
 def create_course(course: CourseCreate):
     new_id = uuid4()
-    now = datetime.utcnow()
+    now = datetime.now()
 
     if new_id in courses:
         raise HTTPException(status_code=400, detail="Course with this ID already exists")
@@ -64,7 +63,7 @@ def list_courses(
     if department_code is not None:
         results = [c for c in results if c.department_code.lower() == department_code.lower()]
     if course_code is not None:
-        results = [c for c in results if c.course_id == course_code]
+        results = [c for c in results if c.course_code == course_code]
     if title is not None:
         results = [c for c in results if title.lower() in c.title.lower()]
     if instructor is not None:
@@ -89,7 +88,7 @@ def update_course(course_id: UUID, update: CourseUpdate):
     if course_id not in courses:
         raise HTTPException(status_code=404, detail="Course not found")
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     stored = courses[course_id].model_dump()
     stored.update(update.model_dump(exclude_unset=True))
     stored["updated_at"] = now
@@ -114,14 +113,13 @@ def create_student(student: StudentCreate):
     if new_id in courses:
         raise HTTPException(status_code=400, detail="Student with this ID already exists")
 
-    now = datetime.utcnow()
-    student_read = StudentRead(
+    now = datetime.now(timezone.utc)
+    students[new_id] = StudentRead(
         id=new_id,
         created_at=now,
         updated_at=now,
         **student.model_dump())
-    student_read[new_id] = student_read
-    return student_read
+    return students[new_id]
 
 @app.get("/students", response_model=List[StudentRead])
 def list_students(
@@ -159,22 +157,22 @@ def list_students(
     if department_code is not None:
         results = [s for s in results if any(course.department_code.lower() == department_code.lower() for course in s.courses)]
     if instructor is not None:
-        results = [s for s in results if any(course.instructor.lower() == instructor.lower() for course in p.courses)]
+        results = [s for s in results if any(course.instructor.lower() == instructor.lower() for course in s.courses)]
 
     return results
 
 @app.get("/students/{student_id}", response_model=StudentRead)
-def get_person(student_id: UUID):
+def get_student(student_id: UUID):
     if student_id not in students:
         raise HTTPException(status_code=404, detail="Student not found")
-    return student_id[student_id]
+    return students[student_id]
 
 @app.patch("/students/{student_id}", response_model=StudentRead)
-def update_person(student_id: UUID, update: StudentUpdate):
+def update_student(student_id: UUID, update: StudentUpdate):
     if student_id not in students:
         raise HTTPException(status_code=404, detail="Student not found")
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     stored = students[student_id].model_dump()
     stored.update(update.model_dump(exclude_unset=True))
     stored['updated_at'] = now
@@ -182,7 +180,7 @@ def update_person(student_id: UUID, update: StudentUpdate):
     return students[student_id]
 
 @app.delete("/students/{student_id}", response_model=StudentRead)
-def delete_person(student_id: UUID):
+def delete_student(student_id: UUID):
     if student_id not in students:
         raise HTTPException(status_code=404, detail="Student not found")
     student_to_delete = students[student_id]
