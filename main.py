@@ -5,166 +5,196 @@ import socket
 from datetime import datetime
 
 from typing import Dict, List
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import FastAPI, HTTPException
 from fastapi import Query, Path
 from typing import Optional
 
-from models.person import PersonCreate, PersonRead, PersonUpdate
-from models.address import AddressCreate, AddressRead, AddressUpdate
-from models.health import Health
+from models.student import StudentCreate, StudentRead, StudentUpdate
+from models.course import CourseCreate, CourseRead, CourseUpdate
 
 port = int(os.environ.get("FASTAPIPORT", 8000))
 
 # -----------------------------------------------------------------------------
 # Fake in-memory "databases"
 # -----------------------------------------------------------------------------
-persons: Dict[UUID, PersonRead] = {}
-addresses: Dict[UUID, AddressRead] = {}
+students: Dict[UUID, StudentRead] = {}
+courses: Dict[UUID, CourseRead] = {}
 
 app = FastAPI(
-    title="Person/Address API",
-    description="Demo FastAPI app using Pydantic v2 models for Person and Address",
+    title="Student/Course API",
+    description="Demo FastAPI app using Pydantic v2 models for Student and Course",
     version="0.1.0",
 )
 
 # -----------------------------------------------------------------------------
-# Address endpoints
+# Courses endpoints
 # -----------------------------------------------------------------------------
+@app.post("/courses", response_model=CourseRead, status_code=201)
+def create_course(course: CourseCreate):
+    new_id = uuid4()
+    now = datetime.utcnow()
 
-def make_health(echo: Optional[str], path_echo: Optional[str]=None) -> Health:
-    return Health(
-        status=200,
-        status_message="OK",
-        timestamp=datetime.utcnow().isoformat() + "Z",
-        ip_address=socket.gethostbyname(socket.gethostname()),
-        echo=echo,
-        path_echo=path_echo
+    if new_id in courses:
+        raise HTTPException(status_code=400, detail="Course with this ID already exists")
+
+    courses[new_id] = CourseRead(
+        id=new_id,
+        created_at=now,
+        updated_at=now,
+        **course.model_dump()
     )
 
-@app.get("/health", response_model=Health)
-def get_health_no_path(echo: str | None = Query(None, description="Optional echo string")):
-    # Works because path_echo is optional in the model
-    return make_health(echo=echo, path_echo=None)
+    return courses[new_id]
 
-@app.get("/health/{path_echo}", response_model=Health)
-def get_health_with_path(
-    path_echo: str = Path(..., description="Required echo in the URL path"),
-    echo: str | None = Query(None, description="Optional echo string"),
+
+@app.get("/courses", response_model=List[CourseRead])
+def list_courses(
+    department_code: Optional[str] = Query(None, description="Filter by department code"),
+    course_code: Optional[str] = Query(None, description="Filter by course id"),
+    title: Optional[str] = Query(None, description="Filter by course title"),
+    instructor: Optional[str] = Query(None, description="Filter by instructor"),
+    days: Optional[str] = Query(None, description="Filter by class days"),
+    start_time: Optional[str] = Query(None, description="Filter by start time"),
+    end_time: Optional[str] = Query(None, description="Filter by end time"),
 ):
-    return make_health(echo=echo, path_echo=path_echo)
+    results = list(courses.values())
 
-@app.post("/addresses", response_model=AddressRead, status_code=201)
-def create_address(address: AddressCreate):
-    if address.id in addresses:
-        raise HTTPException(status_code=400, detail="Address with this ID already exists")
-    addresses[address.id] = AddressRead(**address.model_dump())
-    return addresses[address.id]
-
-@app.get("/addresses", response_model=List[AddressRead])
-def list_addresses(
-    street: Optional[str] = Query(None, description="Filter by street"),
-    city: Optional[str] = Query(None, description="Filter by city"),
-    state: Optional[str] = Query(None, description="Filter by state/region"),
-    postal_code: Optional[str] = Query(None, description="Filter by postal code"),
-    country: Optional[str] = Query(None, description="Filter by country"),
-):
-    results = list(addresses.values())
-
-    if street is not None:
-        results = [a for a in results if a.street == street]
-    if city is not None:
-        results = [a for a in results if a.city == city]
-    if state is not None:
-        results = [a for a in results if a.state == state]
-    if postal_code is not None:
-        results = [a for a in results if a.postal_code == postal_code]
-    if country is not None:
-        results = [a for a in results if a.country == country]
+    if department_code is not None:
+        results = [c for c in results if c.department_code.lower() == department_code.lower()]
+    if course_code is not None:
+        results = [c for c in results if c.course_id == course_code]
+    if title is not None:
+        results = [c for c in results if title.lower() in c.title.lower()]
+    if instructor is not None:
+        results = [c for c in results if instructor.lower() in c.instructor.lower()]
+    if days is not None:
+        results = [c for c in results if days.lower() in c.days.lower()]
+    if start_time is not None:
+        results = [c for c in results if c.start_time.lower() == start_time.lower()]
+    if end_time is not None:
+        results = [c for c in results if c.end_time.lower() == end_time.lower()]
 
     return results
 
-@app.get("/addresses/{address_id}", response_model=AddressRead)
-def get_address(address_id: UUID):
-    if address_id not in addresses:
-        raise HTTPException(status_code=404, detail="Address not found")
-    return addresses[address_id]
+@app.get("/courses/{course_id}", response_model=CourseRead)
+def get_course(course_id: UUID):
+    if course_id not in courses:
+        raise HTTPException(status_code=404, detail="Course not found")
+    return courses[course_id]
 
-@app.patch("/addresses/{address_id}", response_model=AddressRead)
-def update_address(address_id: UUID, update: AddressUpdate):
-    if address_id not in addresses:
-        raise HTTPException(status_code=404, detail="Address not found")
-    stored = addresses[address_id].model_dump()
+@app.patch("/courses/{course_id}", response_model=CourseRead)
+def update_course(course_id: UUID, update: CourseUpdate):
+    if course_id not in courses:
+        raise HTTPException(status_code=404, detail="Course not found")
+
+    now = datetime.utcnow()
+    stored = courses[course_id].model_dump()
     stored.update(update.model_dump(exclude_unset=True))
-    addresses[address_id] = AddressRead(**stored)
-    return addresses[address_id]
+    stored["updated_at"] = now
+    courses[course_id] = CourseRead( **stored)
+    return courses[course_id]
+
+@app.delete("/courses/{course_id}", response_model=CourseRead)
+def delete_course(course_id: UUID):
+    if course_id not in courses:
+        raise HTTPException(status_code=404, detail="Course not found")
+    course_to_delete = courses[course_id]
+    del courses[course_id]
+    return course_to_delete
 
 # -----------------------------------------------------------------------------
-# Person endpoints
+# Student endpoints
 # -----------------------------------------------------------------------------
-@app.post("/persons", response_model=PersonRead, status_code=201)
-def create_person(person: PersonCreate):
-    # Each person gets its own UUID; stored as PersonRead
-    person_read = PersonRead(**person.model_dump())
-    persons[person_read.id] = person_read
-    return person_read
+@app.post("/students", response_model=StudentRead, status_code=201)
+def create_student(student: StudentCreate):
+    new_id = uuid4()
 
-@app.get("/persons", response_model=List[PersonRead])
-def list_persons(
+    if new_id in courses:
+        raise HTTPException(status_code=400, detail="Student with this ID already exists")
+
+    now = datetime.utcnow()
+    student_read = StudentRead(
+        id=new_id,
+        created_at=now,
+        updated_at=now,
+        **student.model_dump())
+    student_read[new_id] = student_read
+    return student_read
+
+@app.get("/students", response_model=List[StudentRead])
+def list_students(
     uni: Optional[str] = Query(None, description="Filter by Columbia UNI"),
     first_name: Optional[str] = Query(None, description="Filter by first name"),
     last_name: Optional[str] = Query(None, description="Filter by last name"),
+    major: Optional[str] = Query(None, description="Filter by major"),
+    grade: Optional[str] = Query(None, description="Filter by grade"),
     email: Optional[str] = Query(None, description="Filter by email"),
     phone: Optional[str] = Query(None, description="Filter by phone number"),
     birth_date: Optional[str] = Query(None, description="Filter by date of birth (YYYY-MM-DD)"),
-    city: Optional[str] = Query(None, description="Filter by city of at least one address"),
-    country: Optional[str] = Query(None, description="Filter by country of at least one address"),
+    department_code: Optional[str] = Query(None, description="Filter by department code of at least one course"),
+    instructor: Optional[str] = Query(None, description="Filter by instructor of at least one course"),
 ):
-    results = list(persons.values())
+    results = list(students.values())
 
     if uni is not None:
-        results = [p for p in results if p.uni == uni]
+        results = [s for s in results if s.uni.lower() == uni.lower()]
     if first_name is not None:
-        results = [p for p in results if p.first_name == first_name]
+        results = [s for s in results if s.first_name.lower() == first_name.lower()]
     if last_name is not None:
-        results = [p for p in results if p.last_name == last_name]
+        results = [s for s in results if s.last_name.lower() == last_name.lower()]
+    if major is not None:
+        results = [s for s in results if s.major.lower() == major.lower()]
+    if grade is not None:
+        results = [s for s in results if s.grade.lower() == grade.lower()]
     if email is not None:
-        results = [p for p in results if p.email == email]
+        results = [s for s in results if s.email == email]
     if phone is not None:
-        results = [p for p in results if p.phone == phone]
+        results = [s for s in results if s.phone == phone]
     if birth_date is not None:
-        results = [p for p in results if str(p.birth_date) == birth_date]
+        results = [s for s in results if str(s.birth_date) == birth_date]
 
     # nested address filtering
-    if city is not None:
-        results = [p for p in results if any(addr.city == city for addr in p.addresses)]
-    if country is not None:
-        results = [p for p in results if any(addr.country == country for addr in p.addresses)]
+    if department_code is not None:
+        results = [s for s in results if any(course.department_code.lower() == department_code.lower() for course in s.courses)]
+    if instructor is not None:
+        results = [s for s in results if any(course.instructor.lower() == instructor.lower() for course in p.courses)]
 
     return results
 
-@app.get("/persons/{person_id}", response_model=PersonRead)
-def get_person(person_id: UUID):
-    if person_id not in persons:
-        raise HTTPException(status_code=404, detail="Person not found")
-    return persons[person_id]
+@app.get("/students/{student_id}", response_model=StudentRead)
+def get_person(student_id: UUID):
+    if student_id not in students:
+        raise HTTPException(status_code=404, detail="Student not found")
+    return student_id[student_id]
 
-@app.patch("/persons/{person_id}", response_model=PersonRead)
-def update_person(person_id: UUID, update: PersonUpdate):
-    if person_id not in persons:
-        raise HTTPException(status_code=404, detail="Person not found")
-    stored = persons[person_id].model_dump()
+@app.patch("/students/{student_id}", response_model=StudentRead)
+def update_person(student_id: UUID, update: StudentUpdate):
+    if student_id not in students:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    now = datetime.utcnow()
+    stored = students[student_id].model_dump()
     stored.update(update.model_dump(exclude_unset=True))
-    persons[person_id] = PersonRead(**stored)
-    return persons[person_id]
+    stored['updated_at'] = now
+    students[student_id] = StudentRead(**stored)
+    return students[student_id]
+
+@app.delete("/students/{student_id}", response_model=StudentRead)
+def delete_person(student_id: UUID):
+    if student_id not in students:
+        raise HTTPException(status_code=404, detail="Student not found")
+    student_to_delete = students[student_id]
+    del students[student_id]
+    return student_to_delete
 
 # -----------------------------------------------------------------------------
 # Root
 # -----------------------------------------------------------------------------
 @app.get("/")
 def root():
-    return {"message": "Welcome to the Person/Address API. See /docs for OpenAPI UI."}
+    return {"message": "Welcome to the Student/Course API. See /docs for OpenAPI UI."}
 
 # -----------------------------------------------------------------------------
 # Entrypoint for `python main.py`
